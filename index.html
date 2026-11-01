@@ -1,1 +1,175 @@
-
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="theme-color" content="#fff0f6">
+<title>藤原千花ブレイクアウト</title>
+<style>
+:root{--pink:#ff6fae;--deep:#e94b91;--ink:#533747}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:linear-gradient(160deg,#fff5fa,#ffe3ef);color:var(--ink);font-family:system-ui,sans-serif}
+body{display:flex;justify-content:center;padding:14px 12px 24px}
+main{width:min(100%,520px);text-align:center}
+h1{font-size:clamp(22px,6vw,30px);margin:5px 0 4px;color:#d83e83}
+.sub{font-size:13px;margin:0 0 12px;color:#93677d}
+.hud{display:flex;justify-content:space-between;gap:8px;margin:0 2px 8px;font-weight:700;font-size:14px}
+.pill{background:#fff;border:1px solid #ffd0e3;border-radius:999px;padding:7px 12px;min-width:88px}
+.game-wrap{position:relative;border:3px solid #ff9bc4;border-radius:20px;overflow:hidden;background:#fff;box-shadow:0 12px 30px #b94a791f;touch-action:none}
+canvas{display:block;width:100%;height:auto;aspect-ratio:360/600;touch-action:none}
+.overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px;background:#fff5f2c9;backdrop-filter:blur(3px)}
+.panel{width:100%;max-width:310px;background:#fff;border:2px solid #ffc0da;border-radius:22px;padding:22px 18px}
+.panel h2{margin:0 0 8px;color:#d83e83;font-size:23px}
+.panel p{font-size:14px;line-height:1.7;margin:0 0 15px}
+button{border:0;border-radius:999px;background:linear-gradient(135deg,#ff8fbd,#ed5599);color:white;font-size:16px;font-weight:800;padding:12px 28px;box-shadow:0 5px 0 #c93d7c}
+.help{font-size:12px;color:#946c80;line-height:1.6;margin:11px 4px 0}
+</style>
+</head>
+<body>
+<main>
+<h1>藤原千花ブレイクアウト</h1>
+<p class="sub">ボールをはね返して、千花ちゃんのパネルを消そう！</p>
+<div class="hud">
+ <div class="pill">スコア <span id="score">0</span></div>
+ <div class="pill">のこり <span id="left">0</span></div>
+ <div class="pill">ライフ <span id="lives">3</span></div>
+</div>
+<div class="game-wrap">
+ <canvas id="game" width="360" height="600"></canvas>
+ <div class="overlay" id="overlay">
+  <div class="panel">
+   <h2 id="messageTitle">準備はいい？</h2>
+   <p id="messageText">画面をタップしてスタート！<br>指を左右に動かしてパドルを操作してね。</p>
+   <button id="startBtn">ゲームスタート</button>
+  </div>
+ </div>
+</div>
+<p class="help" id="serveHint">スマホ：画面を左右になぞって操作。ボールを発射するときは画面をタップ！<br>パソコン：マウス、または ← → キー。発射はクリック。</p>
+</main>
+<script>
+(() => {
+const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
+const overlay=document.getElementById('overlay'),title=document.getElementById('messageTitle'),msg=document.getElementById('messageText'),startBtn=document.getElementById('startBtn');
+const scoreEl=document.getElementById('score'),leftEl=document.getElementById('left'),livesEl=document.getElementById('lives');
+const W=360,H=600,cols=8,rows=7,brickW=38,brickH=48,gap=4,offsetX=10,offsetY=66;
+const image=new Image();image.crossOrigin='anonymous';
+image.src='https://raw.githubusercontent.com/tamaneginegi3945-stack/breakout-game/main/1793519944115.jpg';
+let bricks=[],score=0,lives=3,running=false,waitingServe=false,raf=0;
+let paddle={x:145,y:550,w:70,h:12,speed:6};
+let ball={x:180,y:525,r:7,dx:2.8,dy:-4.2};
+let keys={};
+function makeBricks(){
+ bricks=[];
+ for(let r=0;r<rows;r++)for(let c=0;c<cols;c++)bricks.push({x:offsetX+c*(brickW+gap),y:offsetY+r*(brickH+gap),w:brickW,h:brickH,alive:true,sx:c/cols,sy:r/rows,sw:1/cols,sh:1/rows});
+ leftEl.textContent=bricks.length;
+}
+function resetBall(){
+ ball.x=paddle.x+paddle.w/2;ball.y=paddle.y-15;
+ ball.dx=(Math.random()<.5?-1:1)*2.8;ball.dy=-4.2;
+ waitingServe=true;
+ document.getElementById("serveHint").textContent="画面をタップして次のボールを発射！";
+}
+function updateHud(){scoreEl.textContent=score;leftEl.textContent=bricks.filter(b=>b.alive).length;livesEl.textContent=lives;}
+function drawBackground(){
+ ctx.fillStyle='#fffafd';ctx.fillRect(0,0,W,H);
+ ctx.fillStyle='#ffe8f2';ctx.fillRect(0,0,W,52);
+ ctx.fillStyle='#f7c5dc';ctx.fillRect(0,57,W,2);
+ ctx.fillStyle='#f9e4ed';ctx.fillRect(0,580,W,20);
+}
+function drawBricks(){
+ bricks.forEach(b=>{
+  if(!b.alive)return;
+  ctx.save();ctx.beginPath();ctx.roundRect(b.x,b.y,b.w,b.h,7);ctx.clip();
+  if(image.complete&&image.naturalWidth){
+   const iw=image.naturalWidth,ih=image.naturalHeight;
+   ctx.drawImage(image,b.sx*iw,b.sy*ih,b.sw*iw,b.sh*ih,b.x,b.y,b.w,b.h);
+  }else{ctx.fillStyle='#ffb6d2';ctx.fillRect(b.x,b.y,b.w,b.h);}
+  ctx.strokeStyle='#fff';ctx.lineWidth=2;ctx.stroke();ctx.restore();
+ });
+}
+function draw(){
+ drawBackground();drawBricks();
+ const grad=ctx.createLinearGradient(paddle.x,0,paddle.x+paddle.w,0);
+ grad.addColorStop(0,'#ff9bc4');grad.addColorStop(1,'#e94b91');
+ ctx.fillStyle=grad;ctx.beginPath();ctx.roundRect(paddle.x,paddle.y,paddle.w,paddle.h,8);ctx.fill();
+ ctx.beginPath();ctx.arc(ball.x,ball.y,ball.r,0,Math.PI*2);
+ ctx.fillStyle='#e94b91';ctx.shadowColor='#f7a1c6';ctx.shadowBlur=9;ctx.fill();ctx.shadowBlur=0;
+}
+function hitBrick(){
+ for(const b of bricks){
+  if(!b.alive)continue;
+  if(ball.x+ball.r>b.x&&ball.x-ball.r<b.x+b.w&&ball.y+ball.r>b.y&&ball.y-ball.r<b.y+b.h){
+   b.alive=false;ball.dy*=-1;score+=10;updateHud();return;
+  }
+ }
+}
+function frame(){
+ if(!running)return;
+ if(keys.ArrowLeft)paddle.x-=paddle.speed;
+ if(keys.ArrowRight)paddle.x+=paddle.speed;
+ paddle.x=Math.max(0,Math.min(W-paddle.w,paddle.x));
+ if(waitingServe){
+  ball.x=paddle.x+paddle.w/2;ball.y=paddle.y-15;
+  draw();raf=requestAnimationFrame(frame);return;
+ }
+ ball.x+=ball.dx;ball.y+=ball.dy;
+ if(ball.x<ball.r||ball.x>W-ball.r)ball.dx*=-1;
+ if(ball.y<ball.r)ball.dy=Math.abs(ball.dy);
+ if(ball.y+ball.r>=paddle.y&&ball.y-ball.r<=paddle.y+paddle.h&&ball.x>=paddle.x&&ball.x<=paddle.x+paddle.w&&ball.dy>0){
+  const hit=(ball.x-(paddle.x+paddle.w/2))/(paddle.w/2);
+  ball.dx=hit*4.2;ball.dy=-Math.max(3.5,Math.sqrt(27-ball.dx*ball.dx));
+ }
+ hitBrick();
+ if(ball.y>H+10){
+  lives--;updateHud();
+  if(lives<=0){finish(false);return;}
+  resetBall();
+ }
+ if(bricks.every(b=>!b.alive)){finish(true);return;}
+ draw();raf=requestAnimationFrame(frame);
+}
+function showOverlay(t,m,btn){title.textContent=t;msg.innerHTML=m;startBtn.textContent=btn;overlay.style.display='flex';}
+function start(){
+ cancelAnimationFrame(raf);score=0;lives=3;makeBricks();updateHud();
+ paddle.x=145;resetBall();running=true;
+ overlay.style.display='none';
+ document.getElementById("serveHint").textContent="画面をタップしてボールを発射！";
+ draw();raf=requestAnimationFrame(frame);
+}
+function finish(win){
+ running=false;
+ showOverlay(win?'クリア！':'ゲームオーバー',
+ win?'全部のパネルを消したよ！<br>お見事！':'あと少しだったね！<br>もう一度チャレンジしよう。',
+ 'もう一度あそぶ');
+}
+function movePaddle(e){
+ const rect=canvas.getBoundingClientRect();
+ const x=(e.clientX-rect.left)/rect.width*W;
+ paddle.x=Math.max(0,Math.min(W-paddle.w,x-paddle.w/2));
+ if(waitingServe){ball.x=paddle.x+paddle.w/2;ball.y=paddle.y-15;}
+ if(!running)draw();
+}
+function launchBall(){
+ if(running&&waitingServe){
+  waitingServe=false;
+  document.getElementById("serveHint").textContent="スマホ：画面を左右になぞって操作。ボールを発射するときは画面をタップ！";
+ }
+}
+canvas.addEventListener('pointermove',e=>{
+ if(e.buttons||e.pointerType==='touch')movePaddle(e);
+});
+canvas.addEventListener('pointerdown',e=>{
+ canvas.setPointerCapture?.(e.pointerId);movePaddle(e);launchBall();
+});
+window.addEventListener('keydown',e=>{
+ if(e.key in keys){keys[e.key]=true;e.preventDefault();}
+ if(e.key===' '||e.key==='Enter')launchBall();
+});
+window.addEventListener('keyup',e=>{if(e.key in keys)keys[e.key]=false;});
+startBtn.addEventListener('click',start);
+image.onload=()=>draw();
+makeBricks();updateHud();draw();
+})();
+</script>
+</body>
+</html>
